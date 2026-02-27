@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
-import com.example.demo.model.User;
+import com.example.demo.dto.UserResponse;
+import com.example.demo.model.Role;
 import com.example.demo.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -12,14 +13,17 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * User Controller - admin management operations.
- * Fixed: was exposing GET /users/all without any authorization.
- * Fixed: was doing its own login logic (plain text comparison) — removed, use
- * /api/auth/login.
+ * User REST Controller — profile and admin operations.
+ *
+ * Fixes applied:
+ * - (H2) Returns UserResponse DTO instead of the raw User entity,
+ * preventing accidental exposure of internal entity fields.
+ * - (L2) Removed per-controller @CrossOrigin — global CORS in SecurityConfig.
+ * - Added /admin/users/{id}/role and /admin/users/{id}/active endpoints
+ * so role elevation goes through a controlled, audited, ADMIN-only path.
  */
 @RestController
 @RequestMapping("/api/users")
-@CrossOrigin(origins = { "http://localhost:3000", "http://localhost:5173" })
 public class UserController {
 
     @Autowired
@@ -27,31 +31,59 @@ public class UserController {
 
     /**
      * GET /api/users/me
-     * Get the currently authenticated user's profile.
+     * Authenticated user's own profile.
+     * FIX (H2+M6): Returns UserResponse DTO, not the raw entity.
      */
     @GetMapping("/me")
-    public ResponseEntity<User> getCurrentUser(@AuthenticationPrincipal UserDetails currentUser) {
-        User user = userService.getUserByEmail(currentUser.getUsername());
-        return ResponseEntity.ok(user);
+    public ResponseEntity<UserResponse> getCurrentUser(
+            @AuthenticationPrincipal UserDetails currentUser) {
+        return ResponseEntity.ok(
+                userService.toUserResponse(userService.getUserByEmail(currentUser.getUsername())));
     }
 
     /**
      * GET /api/users/all
-     * Get all users. Admin only.
+     * All users — Admin only.
+     * FIX (H2): Returns List<UserResponse>, not List<User>.
      */
     @GetMapping("/all")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<User>> getAllUsers() {
+    public ResponseEntity<List<UserResponse>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
     /**
      * GET /api/users/{id}
-     * Get user by ID. Admin only.
+     * Get user by ID — Admin only.
      */
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<User> getUserById(@PathVariable Long id) {
-        return ResponseEntity.ok(userService.getUserById(id));
+    public ResponseEntity<UserResponse> getUserById(@PathVariable Long id) {
+        return ResponseEntity.ok(userService.toUserResponse(userService.getUserById(id)));
+    }
+
+    /**
+     * PATCH /api/users/{id}/role?role=ORGANIZER
+     * Change a user's role — Admin only.
+     * This is the ONLY legitimate way to elevate a user's privileges.
+     */
+    @PatchMapping("/{id}/role")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UserResponse> changeUserRole(
+            @PathVariable Long id,
+            @RequestParam Role role) {
+        return ResponseEntity.ok(userService.changeUserRole(id, role));
+    }
+
+    /**
+     * PATCH /api/users/{id}/active?active=false
+     * Activate or deactivate (soft-ban) a user — Admin only.
+     */
+    @PatchMapping("/{id}/active")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UserResponse> setUserActive(
+            @PathVariable Long id,
+            @RequestParam boolean active) {
+        return ResponseEntity.ok(userService.setUserActive(id, active));
     }
 }

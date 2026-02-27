@@ -4,6 +4,8 @@ import com.example.demo.dto.HackathonRequest;
 import com.example.demo.dto.HackathonResponse;
 import com.example.demo.model.HackathonStatus;
 import com.example.demo.service.HackathonService;
+import com.example.demo.service.UserService;
+import com.example.demo.model.User;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -16,24 +18,31 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Hackathon Controller.
- * Fixed: URL changed from /api/hackathon to /api/hackathons (REST convention).
- * Fixed: Returns ResponseEntity with proper status codes.
- * Fixed: Uses proper DTOs rather than entity classes.
- * Fixed: Uses authenticated user from Spring Security context for organizer
- * assignment.
+ * Hackathon REST Controller.
+ *
+ * Fixes applied:
+ * - (C4) GET /my now correctly returns only the caller's own hackathons.
+ * - (C5) PUT /status now passes callerEmail so service can verify ownership.
+ * - (H7) DELETE endpoint added with ownership validation in service layer.
+ * - (L2) Removed @CrossOrigin — global CORS is configured in SecurityConfig.
  */
 @RestController
 @RequestMapping("/api/hackathons")
-@CrossOrigin(origins = { "http://localhost:3000", "http://localhost:5173" })
 public class HackathonController {
 
     @Autowired
     private HackathonService hackathonService;
 
+    @Autowired
+    private UserService userService;
+
+    // -------------------------------------------------------------------------
+    // Public endpoints
+    // -------------------------------------------------------------------------
+
     /**
      * GET /api/hackathons
-     * Get all hackathons. Public endpoint.
+     * Get all hackathons, optionally filtered by status. Public.
      */
     @GetMapping
     public ResponseEntity<List<HackathonResponse>> getAllHackathons(
@@ -46,11 +55,30 @@ public class HackathonController {
 
     /**
      * GET /api/hackathons/{id}
-     * Get a hackathon by ID. Public endpoint.
+     * Get a hackathon by ID. Public.
      */
     @GetMapping("/{id}")
     public ResponseEntity<HackathonResponse> getHackathonById(@PathVariable Long id) {
         return ResponseEntity.ok(hackathonService.getHackathonById(id));
+    }
+
+    // -------------------------------------------------------------------------
+    // Organizer / Admin endpoints
+    // -------------------------------------------------------------------------
+
+    /**
+     * GET /api/hackathons/my
+     * Get hackathons created by the currently authenticated organizer.
+     *
+     * FIX (C4): Was calling getAllHackathons() — returned every hackathon on
+     * the platform. Now correctly filters by the caller's organizer ID.
+     */
+    @GetMapping("/my")
+    @PreAuthorize("hasAnyRole('ORGANIZER','ADMIN')")
+    public ResponseEntity<List<HackathonResponse>> getMyHackathons(
+            @AuthenticationPrincipal UserDetails currentUser) {
+        User user = userService.getUserByEmail(currentUser.getUsername());
+        return ResponseEntity.ok(hackathonService.getHackathonsByOrganizer(user.getId()));
     }
 
     /**
@@ -67,6 +95,52 @@ public class HackathonController {
     }
 
     /**
+     * PUT /api/hackathons/{id}
+     * Update a hackathon's details. Only the owner or Admin can do this.
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ORGANIZER','ADMIN')")
+    public ResponseEntity<HackathonResponse> updateHackathon(
+            @PathVariable Long id,
+            @Valid @RequestBody HackathonRequest request,
+            @AuthenticationPrincipal UserDetails currentUser) {
+        HackathonResponse response = hackathonService.updateHackathon(id, request, currentUser.getUsername());
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * PUT /api/hackathons/{id}/status
+     * Update hackathon status. Only the owner or Admin.
+     * FIX (C5): Now passes callerEmail to the service for ownership validation.
+     */
+    @PutMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('ORGANIZER','ADMIN')")
+    public ResponseEntity<HackathonResponse> updateStatus(
+            @PathVariable Long id,
+            @RequestParam HackathonStatus status,
+            @AuthenticationPrincipal UserDetails currentUser) {
+        return ResponseEntity.ok(hackathonService.updateStatus(id, status, currentUser.getUsername()));
+    }
+
+    /**
+     * DELETE /api/hackathons/{id}
+     * Delete a hackathon. Only the owner or Admin.
+     * FIX (H7): Ownership validated in the service layer.
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ORGANIZER','ADMIN')")
+    public ResponseEntity<Void> deleteHackathon(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails currentUser) {
+        hackathonService.deleteHackathon(id, currentUser.getUsername());
+        return ResponseEntity.noContent().build();
+    }
+
+    // -------------------------------------------------------------------------
+    // Participant endpoints
+    // -------------------------------------------------------------------------
+
+    /**
      * POST /api/hackathons/{id}/register
      * Register the authenticated participant for a hackathon.
      */
@@ -77,29 +151,5 @@ public class HackathonController {
             @AuthenticationPrincipal UserDetails currentUser) {
         String message = hackathonService.registerParticipant(id, currentUser.getUsername());
         return ResponseEntity.ok(message);
-    }
-
-    /**
-     * PUT /api/hackathons/{id}/status
-     * Update hackathon status. Organizer/Admin only.
-     */
-    @PutMapping("/{id}/status")
-    @PreAuthorize("hasAnyRole('ORGANIZER','ADMIN')")
-    public ResponseEntity<HackathonResponse> updateStatus(
-            @PathVariable Long id,
-            @RequestParam HackathonStatus status) {
-        return ResponseEntity.ok(hackathonService.updateStatus(id, status));
-    }
-
-    /**
-     * GET /api/hackathons/my
-     * Get hackathons organised by the current user.
-     */
-    @GetMapping("/my")
-    @PreAuthorize("hasAnyRole('ORGANIZER','ADMIN')")
-    public ResponseEntity<List<HackathonResponse>> getMyHackathons(
-            @AuthenticationPrincipal UserDetails currentUser) {
-        // Uses userEmail to look up organizer ID
-        return ResponseEntity.ok(hackathonService.getAllHackathons());
     }
 }

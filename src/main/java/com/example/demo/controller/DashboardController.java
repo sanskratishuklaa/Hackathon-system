@@ -1,9 +1,9 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.HackathonResponse;
+import com.example.demo.dto.UserResponse;
 import com.example.demo.model.User;
 import com.example.demo.repository.RegistrationRepository;
-import com.example.demo.repository.UserRepository;
 import com.example.demo.service.HackathonService;
 import com.example.demo.service.ProjectService;
 import com.example.demo.service.UserService;
@@ -20,13 +20,15 @@ import java.util.Map;
 
 /**
  * Dashboard Controller — role-specific dashboards.
- * Fixed: was returning all hackathons/users without security or role
- * distinction.
- * Now has separate endpoints for participant, organizer, and admin dashboards.
+ *
+ * Fixes applied:
+ * - (H2) Admin dashboard now uses UserResponse DTO list instead of raw User
+ * entities.
+ * - (L2) Removed per-controller @CrossOrigin.
+ * - Participant dashboard returns only needed fields (not a full User entity).
  */
 @RestController
 @RequestMapping("/api/dashboard")
-@CrossOrigin(origins = { "http://localhost:3000", "http://localhost:5173" })
 public class DashboardController {
 
         @Autowired
@@ -39,14 +41,11 @@ public class DashboardController {
         private UserService userService;
 
         @Autowired
-        private UserRepository userRepository;
-
-        @Autowired
         private RegistrationRepository registrationRepository;
 
         /**
          * GET /api/dashboard/participant
-         * Participant dashboard — their registrations and project submissions.
+         * Participant dashboard — their registrations and projects.
          */
         @GetMapping("/participant")
         @PreAuthorize("hasAnyRole('PARTICIPANT','ADMIN')")
@@ -56,12 +55,8 @@ public class DashboardController {
                 User user = userService.getUserByEmail(currentUser.getUsername());
 
                 Map<String, Object> dashboard = new HashMap<>();
-                dashboard.put("user", Map.of(
-                                "id", user.getId(),
-                                "name", user.getName(),
-                                "email", user.getEmail(),
-                                "college", user.getCollege() != null ? user.getCollege() : "",
-                                "role", user.getRole()));
+                // FIX (H2): Use explicit DTO mapping, not raw entity
+                dashboard.put("user", userService.toUserResponse(user));
                 dashboard.put("myProjects", projectService.getMyProjects(currentUser.getUsername()));
                 dashboard.put("registrations", registrationRepository.findByUserId(user.getId()));
                 dashboard.put("availableHackathons", hackathonService.getAllHackathons());
@@ -71,7 +66,7 @@ public class DashboardController {
 
         /**
          * GET /api/dashboard/organizer
-         * Organizer dashboard — hackathons they created and their stats.
+         * Organizer dashboard — hackathons they created with aggregate stats.
          */
         @GetMapping("/organizer")
         @PreAuthorize("hasAnyRole('ORGANIZER','ADMIN')")
@@ -79,13 +74,11 @@ public class DashboardController {
                         @AuthenticationPrincipal UserDetails currentUser) {
 
                 User user = userService.getUserByEmail(currentUser.getUsername());
+                // FIX (C4): Uses organizer's ID, not getAllHackathons()
                 List<HackathonResponse> myHackathons = hackathonService.getHackathonsByOrganizer(user.getId());
 
                 Map<String, Object> dashboard = new HashMap<>();
-                dashboard.put("user", Map.of(
-                                "id", user.getId(),
-                                "name", user.getName(),
-                                "role", user.getRole()));
+                dashboard.put("user", userService.toUserResponse(user));
                 dashboard.put("myHackathons", myHackathons);
                 dashboard.put("totalHackathonsCreated", myHackathons.size());
                 dashboard.put("totalParticipants",
@@ -99,15 +92,17 @@ public class DashboardController {
         /**
          * GET /api/dashboard/admin
          * Admin dashboard — full platform overview.
+         * FIX (H2): allUsers now returns List<UserResponse>, not List<User>.
          */
         @GetMapping("/admin")
         @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<Map<String, Object>> adminDashboard() {
                 Map<String, Object> dashboard = new HashMap<>();
-                dashboard.put("totalUsers", userRepository.count());
+                dashboard.put("totalUsers", userService.countActiveUsers());
                 dashboard.put("totalHackathons", hackathonService.countAll());
                 dashboard.put("totalProjects", projectService.countAllProjects());
                 dashboard.put("totalRegistrations", registrationRepository.countTotalRegistrations());
+                // FIX (H2): Returns UserResponse DTOs, not raw User entities
                 dashboard.put("allUsers", userService.getAllUsers());
                 dashboard.put("allHackathons", hackathonService.getAllHackathons());
                 dashboard.put("leaderboard", projectService.getLeaderboard());

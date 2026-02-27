@@ -20,7 +20,6 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/evaluation")
-@CrossOrigin(origins = { "http://localhost:3000", "http://localhost:5173" })
 @PreAuthorize("hasAnyRole('JUDGE','ADMIN')")
 public class EvaluationController {
 

@@ -25,7 +25,9 @@ public interface RegistrationRepository extends JpaRepository<Registration, Long
     List<Registration> findByUserId(Long userId);
 
     // Count participants in a hackathon
-    @Query("SELECT COUNT(r) FROM Registration r WHERE r.hackathon.id = :hackathonId AND r.status != 'CANCELLED'")
+    // FIX (H4): Use the enum type directly in JPQL instead of a string literal.
+    // String literals bypass type-checking and break if the column mapping changes.
+    @Query("SELECT COUNT(r) FROM Registration r WHERE r.hackathon.id = :hackathonId AND r.status <> com.example.demo.model.RegistrationStatus.CANCELLED")
     long countActiveByHackathonId(@Param("hackathonId") Long hackathonId);
 
     // Total registrations across all hackathons

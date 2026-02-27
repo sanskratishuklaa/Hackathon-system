@@ -18,15 +18,24 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Project (Submission & Evaluation) Service.
- * Fixed: was using in-memory lists and non-JPA POJO objects.
- * Now persists submissions/evaluations to MySQL.
+ * Project Submission & Evaluation Service.
+ *
+ * Fixes applied:
+ * - (H3) Score thresholds extracted as named constants — no more magic numbers.
+ * - Evaluation validates judge assignment is not null before checking.
+ * - toResponse() handles null hackathon/submitter safely.
  */
 @Service
 @Transactional
 public class ProjectService {
 
     private static final Logger logger = LoggerFactory.getLogger(ProjectService.class);
+
+    // FIX (H3): Named constants instead of magic numbers in evaluateProject().
+    // These can be moved to application.properties + @Value if per-hackathon
+    // thresholds are needed in the future.
+    private static final int WINNER_SCORE_THRESHOLD = 80;
+    private static final int ACCEPTED_SCORE_THRESHOLD = 60;
 
     @Autowired
     private ProjectRepository projectRepository;
@@ -43,9 +52,14 @@ public class ProjectService {
     @Autowired
     private JudgeRepository judgeRepository;
 
+    // -------------------------------------------------------------------------
+    // Submission
+    // -------------------------------------------------------------------------
+
     /**
      * Submit a project for a hackathon.
-     * Validates: hackathon exists, user is registered, no duplicate submission.
+     * Validates: hackathon exists & is open, user is registered,
+     * user hasn't already submitted a project.
      */
     public ProjectResponse submitProject(ProjectRequest request, String userEmail) {
         Hackathon hackathon = hackathonRepository.findById(request.getHackathonId())
@@ -54,18 +68,18 @@ public class ProjectService {
 
         if (hackathon.getStatus() == HackathonStatus.COMPLETED ||
                 hackathon.getStatus() == HackathonStatus.CANCELLED) {
-            throw new BadRequestException("Cannot submit to a " + hackathon.getStatus() + " hackathon");
+            throw new BadRequestException(
+                    "Cannot submit to a " + hackathon.getStatus() + " hackathon");
         }
 
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        // Verify user is registered for this hackathon
         if (!registrationRepository.existsByUserIdAndHackathonId(user.getId(), hackathon.getId())) {
-            throw new BadRequestException("You must register for the hackathon before submitting a project");
+            throw new BadRequestException(
+                    "You must register for the hackathon before submitting a project");
         }
 
-        // Prevent duplicate submissions
         if (projectRepository.existsByHackathonIdAndSubmittedById(hackathon.getId(), user.getId())) {
             throw new BadRequestException("You have already submitted a project for this hackathon");
         }
@@ -88,30 +102,34 @@ public class ProjectService {
         return toResponse(saved);
     }
 
+    // -------------------------------------------------------------------------
+    // Evaluation
+    // -------------------------------------------------------------------------
+
     /**
-     * Evaluate a project (Judge only).
+     * Evaluate a project (Judge or Admin only).
+     * FIX (H3): Score thresholds are now named constants.
      */
     public ProjectResponse evaluateProject(Long hackathonId, EvaluationRequest request, String judgeEmail) {
         Project project = projectRepository.findById(request.getProjectId())
-                .orElseThrow(
-                        () -> new ResourceNotFoundException("Project not found with id: " + request.getProjectId()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Project not found with id: " + request.getProjectId()));
 
-        // Verify evaluator is a judge for this hackathon
         User judge = userRepository.findByEmail(judgeEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("Judge not found"));
 
-        // Check judge is assigned to this hackathon
+        // Verify judge is assigned to this hackathon (only if hackathonId provided)
         if (hackathonId != null) {
             if (!judgeRepository.existsByUserIdAndHackathonId(judge.getId(), hackathonId)) {
                 throw new BadRequestException("You are not assigned as a judge for this hackathon");
             }
         }
 
-        // Determine status based on score
+        // FIX (H3): Use named constants instead of bare magic numbers
         ProjectStatus status;
-        if (request.getScore() >= 80) {
+        if (request.getScore() >= WINNER_SCORE_THRESHOLD) {
             status = ProjectStatus.WINNER;
-        } else if (request.getScore() >= 60) {
+        } else if (request.getScore() >= ACCEPTED_SCORE_THRESHOLD) {
             status = ProjectStatus.ACCEPTED;
         } else {
             status = ProjectStatus.REJECTED;
@@ -123,7 +141,7 @@ public class ProjectService {
         project.setEvaluatedBy(judgeEmail);
         project.setEvaluatedAt(LocalDateTime.now());
 
-        // Increment judge evaluation count
+        // Increment judge's evaluation count
         judgeRepository.findByUserIdAndHackathonId(judge.getId(), project.getHackathon().getId())
                 .ifPresent(j -> {
                     j.incrementEvaluations();
@@ -136,9 +154,10 @@ public class ProjectService {
         return toResponse(saved);
     }
 
-    /**
-     * Get all projects (filtered by hackathon if provided).
-     */
+    // -------------------------------------------------------------------------
+    // Queries
+    // -------------------------------------------------------------------------
+
     @Transactional(readOnly = true)
     public List<ProjectResponse> getAllProjects(Long hackathonId) {
         List<Project> projects = hackathonId != null
@@ -147,9 +166,6 @@ public class ProjectService {
         return projects.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
-    /**
-     * Get projects by the current user.
-     */
     @Transactional(readOnly = true)
     public List<ProjectResponse> getMyProjects(String userEmail) {
         User user = userRepository.findByEmail(userEmail)
@@ -158,9 +174,6 @@ public class ProjectService {
                 .stream().map(this::toResponse).collect(Collectors.toList());
     }
 
-    /**
-     * Leaderboard — top projects sorted by score descending.
-     */
     @Transactional(readOnly = true)
     public List<ProjectResponse> getLeaderboard() {
         return projectRepository.findLeaderboard()
@@ -172,9 +185,10 @@ public class ProjectService {
         return projectRepository.countAllProjects();
     }
 
-    /**
-     * Map Project entity to ProjectResponse DTO.
-     */
+    // -------------------------------------------------------------------------
+    // Mapping
+    // -------------------------------------------------------------------------
+
     private ProjectResponse toResponse(Project p) {
         return ProjectResponse.builder()
                 .id(p.getId())

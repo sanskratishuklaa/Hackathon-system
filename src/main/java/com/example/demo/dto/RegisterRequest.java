@@ -2,8 +2,16 @@ package com.example.demo.dto;
 
 import jakarta.validation.constraints.*;
 import lombok.*;
-import com.example.demo.model.Role;
 
+/**
+ * DTO for user registration requests.
+ *
+ * FIX (M4 — Critical privilege escalation): The original DTO had a `role`
+ * field that allowed clients to self-assign ADMIN or ORGANIZER by sending
+ * {"role":"ADMIN"} in the JSON body. Removed entirely.
+ * New users are always registered as PARTICIPANT; role elevation is an
+ * admin-only action performed via a separate API.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -15,15 +23,16 @@ public class RegisterRequest {
     private String name;
 
     @NotBlank(message = "Email is required")
-    @Email(message = "Email must be valid")
+    @Email(message = "Email must be a valid email address")
     private String email;
 
     @NotBlank(message = "Password is required")
-    @Size(min = 6, message = "Password must be at least 6 characters")
+    @Size(min = 8, message = "Password must be at least 8 characters")
     private String password;
 
-    @Size(max = 150)
+    @Size(max = 150, message = "College name must not exceed 150 characters")
     private String college;
 
-    private Role role; // Optional; defaults to PARTICIPANT
+    // NOTE: 'role' field intentionally omitted.
+    // All registrations default to Role.PARTICIPANT in UserService.
 }

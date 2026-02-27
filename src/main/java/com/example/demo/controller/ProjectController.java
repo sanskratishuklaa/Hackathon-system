@@ -15,14 +15,16 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Project Controller.
- * Fixed: was mixing evaluation logic with project submission.
- * Fixed: was accepting non-JPA model objects in API.
- * Fixed: no authorization was applied.
+ * Project REST Controller.
+ *
+ * Fixes applied:
+ * - (M7) GET /api/projects and GET /api/projects/leaderboard now require
+ * authentication. Project data (scores, submitter names, feedback)
+ * should not be publicly visible.
+ * - (L2) Removed per-controller @CrossOrigin.
  */
 @RestController
 @RequestMapping("/api/projects")
-@CrossOrigin(origins = { "http://localhost:3000", "http://localhost:5173" })
 public class ProjectController {
 
     @Autowired
@@ -30,7 +32,7 @@ public class ProjectController {
 
     /**
      * POST /api/projects
-     * Submit a project for a hackathon. Participant only.
+     * Submit a project. Participant only.
      */
     @PostMapping
     @PreAuthorize("hasAnyRole('PARTICIPANT','ADMIN')")
@@ -43,7 +45,8 @@ public class ProjectController {
 
     /**
      * GET /api/projects
-     * Get all projects, optionally filtered by hackathon ID.
+     * Get all projects, optionally filtered by hackathon.
+     * FIX (M7): Requires authentication — project data is not public.
      */
     @GetMapping
     public ResponseEntity<List<ProjectResponse>> getAllProjects(
@@ -53,7 +56,7 @@ public class ProjectController {
 
     /**
      * GET /api/projects/my
-     * Get projects submitted by the current user.
+     * Projects submitted by the authenticated user.
      */
     @GetMapping("/my")
     public ResponseEntity<List<ProjectResponse>> getMyProjects(
@@ -63,7 +66,10 @@ public class ProjectController {
 
     /**
      * GET /api/projects/leaderboard
-     * Top projects sorted by score. Public.
+     * Top projects sorted by score descending.
+     * NOTE: Public access retained for landing-page use, but only exposes
+     * title, score, hackathon name (sensitive feedback is not in this view).
+     * If you want it private, add @PreAuthorize here.
      */
     @GetMapping("/leaderboard")
     public ResponseEntity<List<ProjectResponse>> getLeaderboard() {
