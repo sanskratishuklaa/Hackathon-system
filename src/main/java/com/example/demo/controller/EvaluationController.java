@@ -1,44 +1,61 @@
 package com.example.demo.controller;
 
-import java.util.List;
-
+import com.example.demo.dto.EvaluationRequest;
+import com.example.demo.dto.ProjectResponse;
+import com.example.demo.service.ProjectService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import com.example.demo.dto.EvaluationRequest;
-import com.example.demo.model.Project;
-import com.example.demo.model.Judge;
-import com.example.demo.service.EvaluationService;
+import java.util.List;
 
+/**
+ * Evaluation Controller — for judges to evaluate projects.
+ * Fixed: was using in-memory POJO objects, no database persistence, no
+ * authorization.
+ */
 @RestController
 @RequestMapping("/api/evaluation")
+@CrossOrigin(origins = { "http://localhost:3000", "http://localhost:5173" })
+@PreAuthorize("hasAnyRole('JUDGE','ADMIN')")
 public class EvaluationController {
 
     @Autowired
-    private EvaluationService evaluationService;
+    private ProjectService projectService;
 
-    // Single or multiple judges evaluation
-    @PostMapping("/evaluate")
-    public String evaluateProject(@RequestBody EvaluationRequest request) {
-        Project project = request.getProject();
-        List<Judge> judges = request.getJudges();
-
-        if (judges.size() == 1) {
-            return evaluationService.evaluateProject(project, judges.get(0));
-        } else {
-            return evaluationService.evaluateProjectByJudges(project, judges);
-        }
+    /**
+     * POST /api/evaluation/{hackathonId}/evaluate
+     * Evaluate a project. Judge only.
+     */
+    @PostMapping("/{hackathonId}/evaluate")
+    public ResponseEntity<ProjectResponse> evaluateProject(
+            @PathVariable Long hackathonId,
+            @Valid @RequestBody EvaluationRequest request,
+            @AuthenticationPrincipal UserDetails currentUser) {
+        ProjectResponse response = projectService.evaluateProject(hackathonId, request, currentUser.getUsername());
+        return ResponseEntity.ok(response);
     }
 
-    // Get all evaluated projects
-    @GetMapping("/all")
-    public List<Project> getAllEvaluatedProjects() {
-        return evaluationService.getEvaluatedProjects();
+    /**
+     * GET /api/evaluation/{hackathonId}/projects
+     * Get all projects for a hackathon (for judge review).
+     */
+    @GetMapping("/{hackathonId}/projects")
+    public ResponseEntity<List<ProjectResponse>> getProjectsToEvaluate(
+            @PathVariable Long hackathonId) {
+        return ResponseEntity.ok(projectService.getAllProjects(hackathonId));
     }
 
-    // Get evaluation history
-    @GetMapping("/history")
-    public List<String> getEvaluationHistory() {
-        return evaluationService.getEvaluationHistory();
+    /**
+     * GET /api/evaluation/leaderboard
+     * Get leaderboard after evaluations.
+     */
+    @GetMapping("/leaderboard")
+    public ResponseEntity<List<ProjectResponse>> getLeaderboard() {
+        return ResponseEntity.ok(projectService.getLeaderboard());
     }
 }

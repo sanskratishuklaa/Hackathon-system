@@ -1,49 +1,53 @@
 package com.example.demo.controller;
 
-import java.util.List;
-import java.util.stream.Collectors;
-
+import com.example.demo.dto.StatsResponse;
+import com.example.demo.model.HackathonStatus;
+import com.example.demo.repository.RegistrationRepository;
+import com.example.demo.repository.UserRepository;
+import com.example.demo.service.HackathonService;
+import com.example.demo.service.ProjectService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import com.example.demo.model.Hackathon;
-import com.example.demo.model.Judge;
-import com.example.demo.model.Project;
-import com.example.demo.service.EvaluationService;
-import com.example.demo.service.HackathonService;
-
+/**
+ * Stats Controller — landing page statistics.
+ * Fixed: was returning unrelated leaderboard/fatigue/participant data.
+ * Now returns actual platform stats for the landing page.
+ */
 @RestController
 @RequestMapping("/api/stats")
-@CrossOrigin
+@CrossOrigin(origins = { "http://localhost:3000", "http://localhost:5173" })
 public class StatsController {
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Autowired
     private HackathonService hackathonService;
 
     @Autowired
-    private EvaluationService evaluationService;
+    private ProjectService projectService;
 
-    // ✅ Leaderboard: DNA score ke basis pe sort karke return kare
-    @GetMapping("/leaderboard")
-    public List<Project> getLeaderboard() {
-        return evaluationService.getEvaluatedProjects().stream()
-                .sorted((p1, p2) -> p2.getDnaScore() - p1.getDnaScore())
-                .collect(Collectors.toList());
-    }
+    @Autowired
+    private RegistrationRepository registrationRepository;
 
-    // ✅ Judge fatigue: POST request me judges list bhejna hoga
-    @PostMapping("/judge-fatigue")
-    public List<String> getJudgeFatigue(@RequestBody List<Judge> judges) {
-        return judges.stream()
-                .map(j -> j.getName() + " | Fatigue: " + j.getFatigue())
-                .collect(Collectors.toList());
-    }
+    /**
+     * GET /api/stats
+     * Platform-wide statistics for landing page. Public endpoint.
+     */
+    @GetMapping
+    public ResponseEntity<StatsResponse> getStats() {
+        StatsResponse stats = StatsResponse.builder()
+                .totalUsers(userRepository.count())
+                .totalHackathons(hackathonService.countAll())
+                .activeHackathons(hackathonService.countByStatus(HackathonStatus.ACTIVE))
+                .upcomingHackathons(hackathonService.countByStatus(HackathonStatus.UPCOMING))
+                .completedHackathons(hackathonService.countByStatus(HackathonStatus.COMPLETED))
+                .totalProjects(projectService.countAllProjects())
+                .totalRegistrations(registrationRepository.countTotalRegistrations())
+                .build();
 
-    // ✅ Hackathon participants: sab hackathon ke participants ka count
-    @GetMapping("/hackathon-participants")
-    public List<String> getHackathonParticipants() {
-        return hackathonService.getAllHackathons().stream()
-                .map(h -> h.getName() + " | Participants: " + h.getParticipants().size())
-                .collect(Collectors.toList());
+        return ResponseEntity.ok(stats);
     }
 }

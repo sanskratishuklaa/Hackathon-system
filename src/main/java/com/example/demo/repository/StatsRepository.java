@@ -1,12 +1,16 @@
 package com.example.demo.repository;
 
+import com.example.demo.model.Project;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-import com.example.demo.model.Project;
+import org.springframework.stereotype.Repository;
+
 import java.util.List;
 
-public interface StatsRepository extends JpaRepository<Project, Integer> {
+@Repository
+public interface StatsRepository extends JpaRepository<Project, Long> {
 
-    @Query("SELECT p.name as name, p.dnaScore as dnaScore FROM Project p ORDER BY p.dnaScore DESC")
+    @Query("SELECT p.title AS title, p.score AS score, p.hackathon.name AS hackathonName " +
+            "FROM Project p ORDER BY p.score DESC")
     List<StatsProjection> getTopProjects();
 }

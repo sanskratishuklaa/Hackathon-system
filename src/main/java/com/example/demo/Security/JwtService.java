@@ -1,51 +1,84 @@
-package com.example.demo.Security;
+package com.example.demo.security;
 
-import java.util.Date;
-
+import io.jsonwebtoken.*;
+import io.jsonwebtoken.security.Keys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.security.Keys;
 import java.security.Key;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
 
+/**
+ * JWT Service for generating, validating, and parsing JWT tokens.
+ */
 @Service
 public class JwtService {
 
-    // Use Key instead of String
-    private static final Key SECRET_KEY = Keys.hmacShaKeyFor("mySecretKey12345mySecretKey12345".getBytes());
+    private static final Logger logger = LoggerFactory.getLogger(JwtService.class);
 
-    // Generate JWT token
+    @Value("${jwt.secret}")
+    private String secretKey;
+
+    @Value("${jwt.expiration}")
+    private long jwtExpiration;
+
     public String generateToken(String username) {
+        return generateToken(new HashMap<>(), username);
+    }
+
+    public String generateToken(Map<String, Object> extraClaims, String username) {
         return Jwts.builder()
+                .setClaims(extraClaims)
                 .setSubject(username)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60)) // 1 hour
-                .signWith(SECRET_KEY, SignatureAlgorithm.HS256)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis() + jwtExpiration))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    // Extract username from token
     public String extractUsername(String token) {
-        return getClaims(token).getSubject();
+        return extractClaim(token, Claims::getSubject);
     }
 
-    // Validate token
     public boolean isTokenValid(String token, String username) {
-        return (extractUsername(token).equals(username) && !isTokenExpired(token));
+        try {
+            final String extractedUsername = extractUsername(token);
+            return extractedUsername.equals(username) && !isTokenExpired(token);
+        } catch (JwtException | IllegalArgumentException e) {
+            logger.warn("JWT validation failed: {}", e.getMessage());
+            return false;
+        }
     }
 
-    // Check expiration
     private boolean isTokenExpired(String token) {
-        return getClaims(token).getExpiration().before(new Date());
+        return extractExpiration(token).before(new Date());
     }
 
-    private Claims getClaims(String token) {
+    private Date extractExpiration(String token) {
+        return extractClaim(token, Claims::getExpiration);
+    }
+
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        final Claims claims = extractAllClaims(token);
+        return claimsResolver.apply(claims);
+    }
+
+    private Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()
-                .setSigningKey(SECRET_KEY)
+                .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
+    }
+
+    private Key getSigningKey() {
+        // Encode secret to Base64 bytes for use as HMAC key (must be >= 256 bits)
+        byte[] keyBytes = java.util.Base64.getEncoder().encode(secretKey.getBytes());
+        return Keys.hmacShaKeyFor(keyBytes);
     }
 }

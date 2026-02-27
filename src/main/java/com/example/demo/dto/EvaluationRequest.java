@@ -1,18 +1,23 @@
 package com.example.demo.dto;
 
-import java.util.List;
-import com.example.demo.model.Judge;
-import com.example.demo.model.Project;
+import jakarta.validation.constraints.*;
+import lombok.*;
 
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class EvaluationRequest {
-    private Project project;
-    private List<Judge> judges;
 
-    public EvaluationRequest() {}
+    @NotNull(message = "Project ID is required")
+    private Long projectId;
 
-    public Project getProject() { return project; }
-    public void setProject(Project project) { this.project = project; }
+    @NotBlank(message = "Feedback is required")
+    @Size(max = 2000)
+    private String feedback;
 
-    public List<Judge> getJudges() { return judges; }
-    public void setJudges(List<Judge> judges) { this.judges = judges; }
+    @NotNull(message = "Score is required")
+    @Min(value = 0, message = "Score cannot be negative")
+    @Max(value = 100, message = "Score cannot exceed 100")
+    private Integer score;
 }
